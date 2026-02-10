@@ -3,4 +3,9 @@ export { AxiosErrorPlugin } from "./plugins/AxiosErrorPlugin";
 export { StandardErrorPlugin } from "./plugins/StandardErrorPlugin";
 export { ZodErrorPlugin } from "./plugins/ZodErrorPlugin";
 
-export type { ErrorPlugin, SerializationCallback, ZodSerializationOptions, AppErrorResponse } from "./types";
+export type {
+  AppErrorResponse,
+  ErrorPlugin,
+  SerializationCallback,
+  ZodSerializationOptions,
+} from "./types";
