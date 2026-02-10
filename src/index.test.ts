@@ -1,7 +1,7 @@
 import { AxiosError } from "axios";
 import { describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
-import { ErrorPriority } from "./contants";
+import { ErrorPriority } from "./constants";
 import {
   AxiosErrorPlugin,
   ErrorSerializer,
@@ -11,16 +11,13 @@ import {
 import type { ExpectedAny } from "./types";
 
 /**
- * Exhaustive test suite for the Error Serialization system.
+ * Comprehensive test suite for the error serialization system.
  */
 describe("Error Serialization Exhaustive Tests", () => {
   /**
-   * Tests covering the main orchestrator logic.
+   * Tests for core orchestrator logic.
    */
   describe("ErrorSerializer Orchestration", () => {
-    /**
-     * Verifies that the serializer provides a fallback when no plugins are registered.
-     */
     it("should work with zero registered plugins using absolute fallback", () => {
       const serializer = new ErrorSerializer();
       const result = serializer.process(new Error("Generic"));
@@ -30,9 +27,6 @@ describe("Error Serialization Exhaustive Tests", () => {
       expect(result.code).toEqual(["UNHANDLED_EXCEPTION"]);
     });
 
-    /**
-     * Ensures that plugins are executed according to their priority, not registration order.
-     */
     it("should respect plugin priority even if registered in wrong order", () => {
       const serializer = new ErrorSerializer();
       serializer.register(new StandardErrorPlugin());
@@ -44,9 +38,6 @@ describe("Error Serialization Exhaustive Tests", () => {
       expect(result.metadata.plugin).toBe("ZodErrorPlugin");
     });
 
-    /**
-     * Checks if the subscription system correctly passes the output to callbacks.
-     */
     it("should trigger callbacks with AppErrorResponse as the first argument", () => {
       const serializer = new ErrorSerializer();
       const callback = vi.fn();
@@ -60,12 +51,9 @@ describe("Error Serialization Exhaustive Tests", () => {
   });
 
   /**
-   * Edge cases for unconventional input types.
+   * Edge cases for various input types.
    */
   describe("Edge Case Inputs", () => {
-    /**
-     * Verifies handling of null values.
-     */
     it("should handle null as an error input", () => {
       const serializer = new ErrorSerializer();
       const result = serializer.process(null);
@@ -74,9 +62,6 @@ describe("Error Serialization Exhaustive Tests", () => {
       expect(result.metadata.plugin).toBe("ErrorSerializer");
     });
 
-    /**
-     * Verifies handling of numeric values.
-     */
     it("should handle numeric error inputs", () => {
       const serializer = new ErrorSerializer();
       const result = serializer.process(500);
@@ -84,9 +69,6 @@ describe("Error Serialization Exhaustive Tests", () => {
       expect(result.global).toBe("500");
     });
 
-    /**
-     * Verifies handling of undefined values.
-     */
     it("should handle undefined error inputs", () => {
       const serializer = new ErrorSerializer();
       const result = serializer.process(undefined);
@@ -96,12 +78,9 @@ describe("Error Serialization Exhaustive Tests", () => {
   });
 
   /**
-   * Deep Zod path and structural transformation tests.
+   * ZodErrorPlugin cases (paths, symbols, nesting).
    */
   describe("ZodErrorPlugin Advanced Scenarios", () => {
-    /**
-     * Ensures Symbol keys are ignored during path stringification.
-     */
     it("should filter out Symbol keys from Zod paths", () => {
       const plugin = new ZodErrorPlugin({ structure: "flat" });
       const sym = Symbol("private");
@@ -117,9 +96,6 @@ describe("Error Serialization Exhaustive Tests", () => {
       expect(result.validation).toHaveProperty("user_name");
     });
 
-    /**
-     * Verifies fallback to default behavior when mapIssue returns nothing.
-     */
     it("should handle mapIssue returning nothing (fallback to default)", () => {
       const plugin = new ZodErrorPlugin({
         mapIssue: () => undefined,
@@ -132,9 +108,6 @@ describe("Error Serialization Exhaustive Tests", () => {
       expect(result.validation?.f).toEqual(["Default"]);
     });
 
-    /**
-     * Ensures numeric indices in paths are treated as object keys in nested mode.
-     */
     it("should correctly handle array index as string keys in nested objects", () => {
       const plugin = new ZodErrorPlugin({
         structure: "nested",
@@ -152,26 +125,18 @@ describe("Error Serialization Exhaustive Tests", () => {
   });
 
   /**
-   * Network, HTTP, and API-specific scenarios for Axios.
+   * AxiosErrorPlugin scenarios (API, network, HTML responses).
    */
   describe("AxiosErrorPlugin Exhaustive Scenarios", () => {
     /**
-     * Verifies that nested validationErrors are automatically flattened.
+     * Verifies basic extraction of validationErrors.
      */
-    it("should extract and flatten nested validationErrors from backend response", () => {
+    it("should extract validationErrors from backend response", () => {
       const plugin = new AxiosErrorPlugin();
       const axiosError = new AxiosError("Unprocessable Entity");
-
-      const mockNestedValidation = {
-        user: {
-          profile: {
-            name: ["Must be a string"],
-            age: ["Required"],
-          },
-          settings: {
-            theme: "Invalid theme",
-          },
-        },
+      const mockValidationErrors = {
+        organization_user_id: ["Must be a number"],
+        method_id: ["Required"],
       };
 
       axiosError.response = {
@@ -179,7 +144,7 @@ describe("Error Serialization Exhaustive Tests", () => {
         data: {
           message: "Validation error",
           errorCode: ["102"],
-          validationErrors: mockNestedValidation,
+          validationErrors: mockValidationErrors,
         },
         config: {} as ExpectedAny,
         headers: {},
@@ -190,15 +155,46 @@ describe("Error Serialization Exhaustive Tests", () => {
 
       expect(result.status).toBe(422);
       expect(result.validation).toEqual({
-        "user.profile.name": ["Must be a string"],
-        "user.profile.age": ["Required"],
-        "user.settings.theme": "Invalid theme",
+        organization_user_id: "Must be a number",
+        method_id: "Required",
       });
     });
 
     /**
-     * Ensures the plugin handles cases where the server cannot be reached.
+     * Verifies flattening and single-value extraction from nested arrays.
      */
+    it("should flatten nested objects and extract single values from arrays", () => {
+      const plugin = new AxiosErrorPlugin();
+      const axiosError = new AxiosError("Unprocessable Entity");
+
+      const mockNestedValidation = {
+        user: {
+          email: ["Invalid format"], // Array with 1 element -> string
+          roles: ["Admin", "Editor"], // Array with >1 element -> array
+        },
+        status: [400], // Number in array -> number
+      };
+
+      axiosError.response = {
+        status: 422,
+        data: {
+          message: "Validation error",
+          validationErrors: mockNestedValidation,
+        },
+        config: {} as ExpectedAny,
+        headers: {},
+        statusText: "Unprocessable Entity",
+      };
+
+      const result = plugin.serialize(axiosError);
+
+      expect(result.validation).toEqual({
+        "user.email": "Invalid format",
+        "user.roles": ["Admin", "Editor"],
+        status: 400,
+      });
+    });
+
     it("should handle Network Errors (no response from server)", () => {
       const plugin = new AxiosErrorPlugin();
       const axiosError = new AxiosError("Network Error");
@@ -209,9 +205,6 @@ describe("Error Serialization Exhaustive Tests", () => {
       expect(result.code).toEqual(["HTTP_0"]);
     });
 
-    /**
-     * Verifies resilience when the response data is not a structured object.
-     */
     it("should handle empty or non-object response data (e.g. 502 Bad Gateway)", () => {
       const plugin = new AxiosErrorPlugin();
       const axiosError = new AxiosError("Bad Gateway");

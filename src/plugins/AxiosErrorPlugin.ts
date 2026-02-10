@@ -1,11 +1,14 @@
 import { type AxiosError, isAxiosError } from "axios";
-import { ErrorPriority } from "../contants";
+import { ErrorPriority } from "../constants";
 import { type AppErrorResponse, ErrorPlugin, type ExpectedAny } from "../types";
 
 /**
  * Plugin for handling Axios errors and extracting server-side data.
  * Supports extraction of messages, error codes, and recursive validation errors
  * which are automatically flattened into a dot-notation structure.
+ *
+ * Special behavior: If a validation field contains an array with a single value,
+ * it will be extracted as a direct value instead of an array.
  */
 export class AxiosErrorPlugin extends ErrorPlugin<AxiosError> {
   /**
@@ -67,7 +70,8 @@ export class AxiosErrorPlugin extends ErrorPlugin<AxiosError> {
 
   /**
    * Recursively flattens a nested object into a flat record with dot-separated keys.
-   * Traverses nested objects but keeps arrays (like string[]) as leaf values.
+   * Traverses nested objects but keeps arrays as leaf values.
+   * If an array has exactly one element, it returns the element itself.
    */
   private flatten(
     obj: Record<string, ExpectedAny>,
@@ -87,7 +91,12 @@ export class AxiosErrorPlugin extends ErrorPlugin<AxiosError> {
           this.flatten(value as Record<string, ExpectedAny>, path),
         );
       } else {
-        acc[path] = value;
+        // Special rule: if array has only 1 item, extract it
+        if (Array.isArray(value) && value.length === 1) {
+          acc[path] = value[0];
+        } else {
+          acc[path] = value;
+        }
       }
 
       return acc;
