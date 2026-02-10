@@ -1,4 +1,4 @@
-# Error Serializer Library
+# @devua-lab/error-serialization
 
 A lightweight, highly extensible TypeScript library for standardized error serialization. It provides a unified pipeline to transform any error—from Zod validation issues and Axios HTTP failures to native JavaScript errors and raw strings—into a consistent, strictly typed response format.
 
@@ -7,16 +7,18 @@ A lightweight, highly extensible TypeScript library for standardized error seria
 ## 📑 Table of Contents
 
 1. [Features](#features)
-2. [Standardized Output Format](#standardized-output-format)
-3. [Out-of-the-Box Functionality](#out-of-the-box-functionality)
-    - [ZodErrorPlugin](#zoderrorplugin)
-    - [AxiosErrorPlugin](#axioserrorplugin)
-    - [StandardErrorPlugin](#standarderrorplugin)
-4. [Core Orchestration](#core-orchestration)
-    - [Priority System](#priority-system)
-    - [Subscription System (Callbacks)](#subscription-system-callbacks)
-5. [Advanced Usage](#advanced-usage)
-6. [Test Coverage & Reliability](#test-coverage--reliability)
+2. [Installation](#installation)
+3. [Quick Start](#quick-start)
+4. [Usage Guide](#usage-guide)
+   - [1. Setup & Registration](#1-setup--registration)
+   - [2. Processing Errors](#2-processing-errors)
+   - [3. Global Subscriptions](#3-global-subscriptions)
+5. [Standard Response Format](#standard-response-format)
+6. [Standard Plugins](#standard-plugins)
+   - [ZodErrorPlugin](#zoderrorplugin)
+   - [AxiosErrorPlugin](#axioserrorplugin)
+   - [StandardErrorPlugin](#standarderrorplugin)
+7. [Priority System](#priority-system)
 
 ---
 
@@ -25,28 +27,135 @@ A lightweight, highly extensible TypeScript library for standardized error seria
 - **🎯 Universal Standardization**: Regardless of the error source, the output always follows the same predictable interface.
 - **🏗️ Structured Validation Mapping**: Advanced transformation of Zod issues into flat keys or deep object hierarchies.
 - **🌐 Generic API Extraction**: Smart parsing of backend error messages and codes from HTTP responses.
-- **🚀 Priority-Based Execution**: Automatically selects the most appropriate handler for any given error object.
-- **🔔 Real-time Subscriptions**: Lightweight callback system for global error monitoring and analytics.
-- **🛡️ Preservation of Context**: The original error object is always preserved, allowing access to low-level details (like Axios request configs).
-- **🔌 Plugin-Driven**: Easily register new handlers for custom application-specific error classes.
+- **🚀 Priority-Based Execution**: Automatically selects the most appropriate handler.
+- **🔔 Real-time Subscriptions**: Simple callback system for global error monitoring.
+- **🛡️ Preservation of Context**: Access low-level details (like Axios request configs) via the preserved original error.
 
 ---
 
-## 🏗 Standardized Output Format
+## 📦 Installation
 
-The serialization process produces an `AppErrorResponse` object:
+```bash
+npm install @devua-lab/error-serialization
+```
+
+### Peer Dependencies
+This library requires `axios` and `zod` to be installed in your project as peer dependencies:
+
+```bash
+npm install axios zod
+```
+
+---
+
+## 🚀 Quick Start
+
+```typescript
+import { ErrorSerializer, ZodErrorPlugin, AxiosErrorPlugin } from '@devua-lab/error-serialization';
+
+// 1. Initialize
+const serializer = new ErrorSerializer();
+
+// 2. Register plugins
+serializer
+  .register(new AxiosErrorPlugin())
+  .register(new ZodErrorPlugin({ structure: 'nested' }));
+
+// 3. Use in your application
+try {
+  await api.post('/login', data);
+} catch (error) {
+  const result = serializer.process(error);
+  console.log(result.global); // "Invalid credentials"
+  console.log(result.status); // 401
+}
+```
+
+---
+
+## 🛠 Usage Guide
+
+### 1. Setup & Registration
+Create a central error utility in your app to reuse the serializer instance. Register plugins in any order; the library will sort them by internal priority.
+
+```typescript
+// error-utility.ts
+import { 
+  ErrorSerializer, 
+  ZodErrorPlugin, 
+  AxiosErrorPlugin, 
+  StandardErrorPlugin 
+} from '@devua-lab/error-serialization';
+
+export const errorSerializer = new ErrorSerializer();
+
+errorSerializer
+  .register(new StandardErrorPlugin())
+  .register(new AxiosErrorPlugin())
+  .register(new ZodErrorPlugin({ 
+    structure: 'flat', 
+    messageFormat: 'string' 
+  }));
+```
+
+### 2. Processing Errors
+Simply wrap your logic in a `try/catch` block and pass the caught error to the `process` method.
+
+```typescript
+import { errorSerializer } from './error-utility';
+
+async function handleSubmit(formData: any) {
+  try {
+    const validated = schema.parse(formData);
+    await userService.create(validated);
+  } catch (err) {
+    const error = errorSerializer.process(err);
+
+    if (error.status === 422) {
+      // Handle validation errors in UI
+      setFormErrors(error.validation);
+    } else {
+      // Show global notification
+      toast.error(error.global || "Something went wrong");
+    }
+  }
+}
+```
+
+### 3. Global Subscriptions
+Use subscriptions to automate logging or reporting without cluttering your business logic.
+
+```typescript
+errorSerializer.subscribe((context) => {
+  // Report critical errors to Sentry
+  if (context.status && context.status >= 500) {
+    Sentry.captureException(context.error);
+  }
+
+  // Analytics for specific error codes
+  if (context.code?.includes('AUTH_EXPIRED')) {
+    analytics.track('Session Timeout');
+  }
+});
+```
+
+---
+
+## 🏗 Standard Response Format
+
+The `process` method always returns an `AppErrorResponse` object:
 
 ```typescript
 {
   metadata: {
-    plugin: string;    // The plugin that successfully handled the error
-    priority: number;  // Priority level of the handling plugin
+    plugin: string;    // Plugin name (e.g., "ZodErrorPlugin" or "ErrorSerializer" for fallbacks)
+    priority: number;  // Level (2: Zod, 1: Axios, 0: Standard, -1: Fallback)
   },
-  error: unknown;      // The ORIGINAL error object (preserved for logging/debugging)
-  global?: string;     // A primary human-readable error message
-  code?: string[];     // Standardized error identifiers (e.g., ["102", "CONFLICT"])
-  status?: number;     // Numeric status code (e.g., 422, 404, 500, or 0 for network issues)
-  validation?: {       // Detailed field-level errors (primarily for Zod)
+  error: unknown;      // The ORIGINAL error object
+  global?: string;     // Main human-readable message
+  code?: string[];     // Array of error codes (e.g., ["102", "CONFLICT"])
+  status?: number;     // Numeric status code (e.g., 422, 500, or 0)
+  validation?: {       // Object with field-level errors
     [key: string]: any;
   }
 }
@@ -54,81 +163,11 @@ The serialization process produces an `AppErrorResponse` object:
 
 ---
 
-## 📦 Out-of-the-Box Functionality
+## ⚙️ Priority System 
 
-### ZodErrorPlugin
-Designed for `ZodError` instances. It translates complex validation issues into formats suitable for frontend state.
-- **Status Code**: Returns `422`.
-- **Default Code**: `["102"]`.
-- **Flexible Pathing**: Correctly handles array indices (e.g., `list.0.name`) and nested properties.
-- **Customizable**: Use `mapIssue` to dynamically rewrite messages or inject specific codes based on validation parameters.
-
-### AxiosErrorPlugin
-A generic handler for `AxiosError`. It is designed to work with virtually any backend error structure.
-- **Message Parsing**: Scans the response body for `message` or `error.message`.
-- **Code Parsing**: Extracts `code` or `errorCode` from response data.
-- **Network Awareness**: Provides fallback status `0` and generic codes (e.g., `HTTP_0`) when a server response is absent (Network Error).
-
-### StandardErrorPlugin
-The baseline handler for native `Error` objects, ensuring even basic exceptions are standardized.
-- **Code**: `["INTERNAL_ERROR"]`.
-- **Message**: Uses the native `error.message`.
-
----
-
-## ⚙️ Core Orchestration
-
-### Priority System
-Plugins are ordered by priority. The `ErrorSerializer` iterates through them until it finds a match.
-
-| Plugin                  | Priority | Matching Criteria                      |
-|:------------------------|:---------|:---------------------------------------|
-| **ZodErrorPlugin**      | 2        | `instanceof ZodError`                  |
-| **AxiosErrorPlugin**    | 1        | `axios.isAxiosError(error)`            |
-| **StandardErrorPlugin** | 0        | `instanceof Error`                     |
-| **FallbackError**       | -1       | Fallback priority for unhandled errors |
-
-### Subscription System (Callbacks)
-Register callbacks to listen to every serialization event. Since the original error is preserved in the output, you can extract any context needed.
-
-```typescript
-serializer.subscribe((context) => {
-  // Access Axios config via the original error preservation
-  if (context.metadata.plugin === 'AxiosErrorPlugin') {
-    const originalAxiosError = context.error as AxiosError;
-    console.log('Request URL:', originalAxiosError.config?.url);
-  }
-  
-  // Log all critical status codes
-  if (context.status && context.status >= 500) {
-    MyMonitor.log(context.global);
-  }
-});
-```
-
----
-
-## 🚀 Advanced Usage
-
-### Custom Zod Mapping
-```typescript
-const plugin = new ZodErrorPlugin({
-  mapIssue: (issue) => {
-    if (issue.params?.apiCode) {
-      return { code: issue.params.apiCode, message: issue.message };
-    }
-  }
-});
-```
-
----
-
-## 🧪 Test Coverage & Reliability
-
-The library is fully verified with `vitest` against a wide range of scenarios:
-- **General Backend Errors**: Extraction of custom error codes and messages from various API response formats.
-- **Deeply Nested Validation**: Handling of paths like `['a', 0, 'b', 1, 'c']` in both flat and nested modes.
-- **Symbol Key Safety**: Automatic filtering of `Symbol` keys in Zod paths to prevent serialization issues.
-- **Boundary Inputs**: Graceful handling of `null`, `undefined`, and numeric inputs.
-- **Connectivity Issues**: Accurate serialization of Axios network-level failures.
-- **Subscription Integrity**: Confirmation that simplified callbacks receive the full `AppErrorResponse`.
+| Plugin | Priority | Matching Criteria |
+| :--- | :--- | :--- |
+| **ZodErrorPlugin** | 2 | `instanceof ZodError` |
+| **AxiosErrorPlugin** | 1 | `axios.isAxiosError(error)` |
+| **StandardErrorPlugin** | 0 | `instanceof Error` |
+| **ErrorSerializer** | -1 | Fallback for raw strings, numbers, or null |
