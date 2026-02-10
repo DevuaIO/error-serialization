@@ -1,5 +1,5 @@
 {
-	"name": "error-serialization",
+	"name": "@devua-lab/error-serialization",
 	"version": "1.0.0",
 	"type": "module",
 	"main": "./dist/index.cjs",
